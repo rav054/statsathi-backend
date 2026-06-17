@@ -25,24 +25,15 @@ app = FastAPI(
 )
 
 # Configure CORS to allow frontend communication
-# In development, we can allow localhost origins
-#origins = [
-    #"http://localhost:5173",  # Vite dev server
-   # "http://127.0.0.1:5173",
-    #"http://localhost:3000",
-    #"http://127.0.0.1:3000",
-   # "https://statsathi-frontend.vercel.app"
-   # "https://statsathi-frontend-ravi-statsathi.vercel.app"
-]
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",
+        "http://localhost:5173",  
         "http://127.0.0.1:5173",
-        "http://localhost:3000"
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
     ],
-    allow_origin_regex=r"https://.*\.vercel\.app",  # This automatically allows ALL Vercel URLs
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
