@@ -18,12 +18,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    # Sliced to 72 chars to prevent password manager injection crashes
-    return pwd_context.verify(plain_password[:72], hashed_password)
+    # Aggressively slice to 50 to prevent byte-overflows
+    return pwd_context.verify(plain_password[:50], hashed_password)
 
 def get_password_hash(password: str) -> str:
-    # Sliced to 72 chars to prevent password manager injection crashes
-    return pwd_context.hash(password[:72])
+    # Aggressively slice to 50 to prevent byte-overflows
+    return pwd_context.hash(password[:50])
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
