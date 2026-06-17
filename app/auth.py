@@ -20,9 +20,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     # THE TRIPWIRE
     print(f"--- BACKEND IS AWAKE! Received password of length: {len(plain_password)} ---")
-    
     # Aggressively slice to 50 to prevent byte-overflows
     return pwd_context.verify(plain_password[:50], hashed_password)
+
+def get_password_hash(password: str) -> str:
+    # Aggressively slice to 50 to prevent byte-overflows
+    return pwd_context.hash(password[:50])
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
