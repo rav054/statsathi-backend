@@ -39,10 +39,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "https://statsathi-frontend.vercel.app",
-        "https://statsathi-frontend-ravi-statsathi.vercel.app",
-        "https://statsathi-frontend-git-main-ravi-statsathi.vercel.app"
+        "http://127.0.0.1:5173",
+        "http://localhost:3000"
     ],
+    allow_origin_regex=r"https://.*\.vercel\.app",  # This automatically allows ALL Vercel URLs
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
