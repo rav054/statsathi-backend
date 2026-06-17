@@ -196,6 +196,34 @@ def get_preview(
         "total_rows": len(df)
     }
 
+@router.post("/upload-edited-data")
+def upload_edited_data(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    filename = file.filename or ""
+    if not (filename.endswith('.csv') or filename.endswith('.xlsx') or filename.endswith('.xls')):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only CSV or Excel files are supported."
+        )
+    try:
+        if filename.endswith('.csv'):
+            df = pd.read_csv(file.file)
+        else:
+            df = pd.read_excel(file.file)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to parse dataset file: {str(e)}"
+        )
+    return {
+        "status": "success",
+        "message": "Edited dataset uploaded and saved successfully.",
+        "rows": len(df),
+        "columns": list(df.columns)
+    }
+
 @router.post("/parametric")
 def analyze_parametric(
     file: UploadFile = File(...),
@@ -1049,26 +1077,34 @@ def analyze_anova(
             detail=f"Column '{rep_var}' not found in dataset."
         )
 
+    # Convert dependent variable to numeric first, coercing invalid text to NaN
+    try:
+        df[dep_var] = pd.to_numeric(df[dep_var], errors='coerce')
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Dependent variable '{dep_var}' must be numeric."
+        )
+
     cols_to_use = [dep_var, ind_var1]
     if ind_var2:
         cols_to_use.append(ind_var2)
     if rep_var:
         cols_to_use.append(rep_var)
         
-    df_clean = df[cols_to_use].dropna()
+    df_clean = df[cols_to_use].dropna().copy()
     
     if len(df_clean) < 5:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Not enough observations after dropping missing values."
+            detail="Dataset contains empty cells or invalid dimensions. ANOVA requires at least 5 valid observations after removing missing values or non-numeric cells."
         )
 
-    try:
-        df_clean[dep_var] = pd.to_numeric(df_clean[dep_var])
-    except Exception:
+    # Check for zero variance in ANOVA dependent variable
+    if df_clean[dep_var].var() == 0 or np.isnan(df_clean[dep_var].var()):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Dependent variable '{dep_var}' must be numeric."
+            detail="The dependent variable has zero variance (all values are identical). ANOVA cannot be performed."
         )
 
     shapiro_results = {}
@@ -2011,8 +2047,8 @@ def analyze_anova(
         raise he
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to run ANOVA calculations: {str(e)}"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to run ANOVA calculations due to data issues: {str(e)}"
         )
 
     img_b64 = base64.b64encode(plot_buf.getvalue()).decode('utf-8')
@@ -4033,13 +4069,39 @@ def analyze_regression(
             detail=f"Variables not found in dataset: {', '.join(missing_cols)}"
         )
 
+    # Convert all columns to numeric, raising errors for invalid text
+    for col in all_vars:
+        try:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Column '{col}' contains non-numeric data that cannot be analyzed."
+            )
+
     # Clean rows with missing values
     df_clean = df.dropna(subset=all_vars).copy()
     if len(df_clean) < 5:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Regression requires at least 5 valid observations after removing missing values."
+            detail="Dataset contains empty cells or invalid dimensions for PLSR/Regression. Regression requires at least 5 valid observations after removing missing values or non-numeric cells."
         )
+
+    # Check for zero variance in independent variables
+    for col in ind_vars:
+        if df_clean[col].var() == 0 or np.isnan(df_clean[col].var()):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Independent variable '{col}' has zero variance (all values are identical). PLSR/Regression cannot be computed."
+            )
+            
+    # Check for zero variance in dependent variables
+    for col in dep_vars:
+        if df_clean[col].var() == 0 or np.isnan(df_clean[col].var()):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Dependent variable '{col}' has zero variance (all values are identical). PLSR/Regression cannot be computed."
+            )
 
     if regression_type in ["simple", "multiple"]:
         # Standard OLS Multiple Linear Regression
@@ -4141,9 +4203,17 @@ def analyze_regression(
         n_targets = Y.shape[1]
         
         # Components sanity check
-        comp = min(n_components, n_features, n_samples - 1)
-        if comp < 1:
-            comp = 1
+        if n_components > n_features:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Dataset contains empty cells or invalid dimensions for PLSR. Number of components ({n_components}) cannot exceed the number of predictor variables ({n_features})."
+            )
+        if n_components >= n_samples:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Dataset contains empty cells or invalid dimensions for PLSR. Number of components ({n_components}) must be less than the number of observations ({n_samples})."
+            )
+        comp = n_components
             
         try:
             pls = PLSRegression(n_components=comp)
