@@ -2054,7 +2054,7 @@ def analyze_anova(
     img_b64 = base64.b64encode(plot_buf.getvalue()).decode('utf-8')
 
     descriptives = {}
-    if test_type in ["oneway", "rbd_oneway"]:
+    if test_type in ["oneway", "rbd_oneway", "lsd"]:
         groups = df_clean.groupby(ind_var1)
         for name, group in groups:
             n_val = int(len(group))
