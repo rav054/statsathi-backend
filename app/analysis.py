@@ -128,6 +128,40 @@ def analyze_correlation(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error generating heatmap visualization: {str(e)}"
         )
+@router.post("/excel-to-csv")
+def excel_to_csv(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    filename = file.filename or ""
+    if not (filename.endswith('.xlsx') or filename.endswith('.xls')):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only Excel files (.xlsx, .xls) are supported for conversion."
+        )
+
+    try:
+        df = pd.read_excel(file.file)
+        csv_buf = io.StringIO()
+        df.to_csv(csv_buf, index=False)
+        csv_data = csv_buf.getvalue()
+        
+        base_name = filename.rsplit('.', 1)[0]
+        csv_filename = f"{base_name}.csv"
+        
+        return StreamingResponse(
+            io.BytesIO(csv_data.encode('utf-8')),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename={csv_filename}",
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to convert Excel to CSV: {str(e)}"
+        )
 
 @router.post("/columns")
 def get_columns(
