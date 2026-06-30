@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Stat Sathi"
-    DATABASE_URL: str = "postgresql://postgres:Raviravi%405454@db.ranvkqyvjhvztywjexov.supabase.co:5432/postgres"
+    DATABASE_URL: str = "postgresql://postgres.ranvkqyvjhvztywjexov:Raviravi%405454@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres"
     
     # In production, these should be loaded from environment variables
     SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "b30fb0d33e5069a304ee0c6b1297e0169123fe387ad6ef2958e98031db26bcab")
