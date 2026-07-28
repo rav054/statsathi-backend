@@ -181,6 +181,7 @@ def get_columns(
             df = pd.read_csv(file.file)
         else:
             df = pd.read_excel(file.file)
+        df.columns = df.columns.astype(str)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1172,6 +1173,7 @@ def analyze_anova(
             df = pd.read_csv(file.file)
         else:
             df = pd.read_excel(file.file)
+        df.columns = df.columns.astype(str)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1192,6 +1194,10 @@ def analyze_anova(
                 detail="The 'factors' parameter is required for multi-factor ANOVA."
             )
         factor_list = [f.strip() for f in factors.split(",") if f.strip()]
+        # Immediately convert factor columns to string/category type
+        for col in factor_list:
+            if col in df.columns:
+                df[col] = df[col].astype(str)
         if len(factor_list) < 1:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
