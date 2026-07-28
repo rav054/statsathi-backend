@@ -1,5 +1,6 @@
 import io
 import base64
+import itertools
 from typing import Optional
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, status, Form
 from fastapi.responses import StreamingResponse
@@ -1062,18 +1063,103 @@ def build_twoway_design_matrix(df, factorA, factorB):
     
     return X, idx_intercept, idx_A, idx_B, idx_AB
 
+def build_multifactor_design_matrix(df, factors):
+    n_samples = len(df)
+    cols = [np.ones(n_samples)]
+    
+    dummies_dict = {}
+    cats_dict = {}
+    for f in factors:
+        dummies, cats = create_dummy_vars(df, f)
+        dummies_dict[f] = dummies
+        cats_dict[f] = cats
+
+    effects_indices = {}
+    current_idx = 1
+    
+    for r in range(1, len(factors) + 1):
+        for combo in itertools.combinations(factors, r):
+            effect_name = ":".join(combo)
+            prod_list = [np.ones(n_samples)]
+            for f in combo:
+                next_prod_list = []
+                for p in prod_list:
+                    for d in dummies_dict[f]:
+                        next_prod_list.append(p * d)
+                prod_list = next_prod_list
+            
+            start_idx = current_idx
+            cols.extend(prod_list)
+            current_idx += len(prod_list)
+            effects_indices[effect_name] = list(range(start_idx, current_idx))
+            
+    X = np.column_stack(cols)
+    return X, effects_indices
+
+def build_multifactor_rbd_design_matrix(df, factors, rep_var):
+    n_samples = len(df)
+    cols = [np.ones(n_samples)]
+    
+    # 1. Add dummy variables for replication/block factor
+    rep_dummies, rep_cats = create_dummy_vars(df, rep_var)
+    cols.extend(rep_dummies)
+    
+    effects_indices = {}
+    current_idx = 1
+    
+    # Record indices for replication/block factor
+    start_idx = current_idx
+    current_idx += len(rep_dummies)
+    effects_indices[rep_var] = list(range(start_idx, current_idx))
+    
+    # 2. Add dummy variables for each factor and their interactions
+    dummies_dict = {}
+    cats_dict = {}
+    for f in factors:
+        dummies, cats = create_dummy_vars(df, f)
+        dummies_dict[f] = dummies
+        cats_dict[f] = cats
+
+    for r in range(1, len(factors) + 1):
+        for combo in itertools.combinations(factors, r):
+            effect_name = ":".join(combo)
+            prod_list = [np.ones(n_samples)]
+            for f in combo:
+                next_prod_list = []
+                for p in prod_list:
+                    for d in dummies_dict[f]:
+                        next_prod_list.append(p * d)
+                prod_list = next_prod_list
+            
+            start_idx = current_idx
+            cols.extend(prod_list)
+            current_idx += len(prod_list)
+            effects_indices[effect_name] = list(range(start_idx, current_idx))
+            
+    X = np.column_stack(cols)
+    return X, effects_indices
+
 @router.post("/anova")
 def analyze_anova(
     file: UploadFile = File(...),
-    test_type: str = Form(...),  # "oneway", "rbd_oneway", "twoway", "rbd_twoway", "splitplot"
+    test_type: str = Form(...),  # "oneway", "rbd_oneway", "twoway", "rbd_twoway", "splitplot", "crd_multifactor", "rbd_multifactor"
     dep_var: str = Form(...),    # numeric DV
-    ind_var1: str = Form(...),   # categorical IV 1
+    ind_var1: Optional[str] = Form(None),   # categorical IV 1
     ind_var2: Optional[str] = Form(None),  # categorical IV 2
     rep_var: Optional[str] = Form(None),   # categorical replication/block factor
+    factors: Optional[str] = Form(None),   # Comma-separated list of factors for multi-factor ANOVA
     posthoc_method: Optional[str] = Form("tukey"),  # "tukey" or "games_howell"
     palette: Optional[str] = Form("Oranges"), # Color palette choice
     current_user: User = Depends(get_current_user)
 ):
+    # Sanitize default Form parameters if function is called directly in Python
+    if type(ind_var1).__name__ == "Form": ind_var1 = None
+    if type(ind_var2).__name__ == "Form": ind_var2 = None
+    if type(rep_var).__name__ == "Form": rep_var = None
+    if type(factors).__name__ == "Form": factors = None
+    if type(posthoc_method).__name__ == "Form": posthoc_method = "tukey"
+    if type(palette).__name__ == "Form": palette = "Oranges"
+
     filename = file.filename or ""
     if not (filename.endswith('.csv') or filename.endswith('.xlsx') or filename.endswith('.xls')):
         raise HTTPException(
@@ -1092,13 +1178,43 @@ def analyze_anova(
             detail=f"Failed to parse dataset file: {str(e)}"
         )
 
-    for var in [dep_var, ind_var1]:
-        if var not in df.columns:
+    if dep_var not in df.columns:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Column '{dep_var}' not found in dataset."
+        )
+
+    factor_list = []
+    if test_type in ["crd_multifactor", "rbd_multifactor"]:
+        if not factors:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Column '{var}' not found in dataset."
+                detail="The 'factors' parameter is required for multi-factor ANOVA."
             )
-            
+        factor_list = [f.strip() for f in factors.split(",") if f.strip()]
+        if len(factor_list) < 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least one factor must be selected for multi-factor ANOVA."
+            )
+        for f in factor_list:
+            if f not in df.columns:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Column '{f}' not found in dataset."
+                )
+    else:
+        if not ind_var1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Independent Factor 1 (ind_var1) is required."
+            )
+        if ind_var1 not in df.columns:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Column '{ind_var1}' not found in dataset."
+            )
+
     if ind_var2 and ind_var2 not in df.columns:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1120,9 +1236,13 @@ def analyze_anova(
             detail=f"Dependent variable '{dep_var}' must be numeric."
         )
 
-    cols_to_use = [dep_var, ind_var1]
-    if ind_var2:
-        cols_to_use.append(ind_var2)
+    cols_to_use = [dep_var]
+    if test_type in ["crd_multifactor", "rbd_multifactor"]:
+        cols_to_use.extend(factor_list)
+    else:
+        cols_to_use.append(ind_var1)
+        if ind_var2:
+            cols_to_use.append(ind_var2)
     if rep_var:
         cols_to_use.append(rep_var)
         
@@ -2020,7 +2140,138 @@ def analyze_anova(
             ax.set_ylabel(dep_var, fontsize=10)
             ax.legend(title=ind_var2, frameon=True, facecolor="white", edgecolor="#E2E8F0")
 
-        if test_type in ["twoway", "rbd_twoway", "splitplot"]:
+        elif test_type in ["crd_multifactor", "rbd_multifactor"]:
+            # Perform multi-factor CRD or RBD ANOVA
+            if test_type == "rbd_multifactor":
+                if not rep_var:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Replication/Block variable (rep_var) is required for Multi-Factor RBD."
+                    )
+                X, effects_indices = build_multifactor_rbd_design_matrix(df_clean, factor_list, rep_var)
+            else:
+                X, effects_indices = build_multifactor_design_matrix(df_clean, factor_list)
+
+            Y = df_clean[dep_var].values
+            n_samples = len(df_clean)
+            n_coefs = X.shape[1]
+
+            if n_samples <= n_coefs:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Insufficient sample size ({n_samples}) for Multi-Factor ANOVA. Needs more rows than combinations (coefficients={n_coefs})."
+                )
+
+            # Fit full model and get RSS
+            rss_full = fit_rss(X, Y)
+
+            # Compute RSS and SS for each effect by dropping its columns
+            effects_results = []
+            for effect_name, indices in effects_indices.items():
+                keep_cols = [c for c in range(X.shape[1]) if c not in indices]
+                X_reduced = X[:, keep_cols]
+                rss_reduced = fit_rss(X_reduced, Y)
+                ss_effect = max(0.0, rss_reduced - rss_full)
+                df_effect = len(indices)
+                effects_results.append({
+                    "name": effect_name,
+                    "ss": ss_effect,
+                    "df": df_effect
+                })
+
+            ss_total = ((Y - Y.mean())**2).sum()
+            df_total = n_samples - 1
+            df_error = n_samples - n_coefs
+            ss_error = max(0.0, rss_full)
+            ms_error = ss_error / df_error if df_error > 0 else 0.0
+
+            # Build effects list for anova_table
+            anova_effects = []
+            for eff in effects_results:
+                ms_effect = eff["ss"] / eff["df"] if eff["df"] > 0 else 0.0
+                f_stat = ms_effect / ms_error if ms_error > 0 else 0.0
+                p_val = stats.f.sf(f_stat, eff["df"], df_error) if df_error > 0 else 1.0
+                anova_effects.append({
+                    "source": eff["name"],
+                    "ss": float(eff["ss"]),
+                    "df": int(eff["df"]),
+                    "ms": float(ms_effect),
+                    "f_statistic": float(f_stat),
+                    "p_value": float(p_val),
+                    "significant": bool(p_val < 0.05)
+                })
+
+            # Check if block factor is significant
+            significant_rep = False
+            if test_type == "rbd_multifactor" and rep_var in effects_indices:
+                for eff in anova_effects:
+                    if eff["source"] == rep_var:
+                        significant_rep = eff["significant"]
+                        break
+
+            anova_table = {
+                "method": f"Multi-Factor {'RBD' if test_type == 'rbd_multifactor' else 'CRD'} ANOVA (Type III SS)",
+                "effects": anova_effects,
+                "error": {
+                    "source": "Error",
+                    "df": int(df_error),
+                    "ss": float(ss_error),
+                    "ms": float(ms_error)
+                },
+                "total": {
+                    "source": "Total",
+                    "df": int(df_total),
+                    "ss": float(ss_total)
+                },
+                "significant_rep": significant_rep
+            }
+
+            # Map effects dict for backward-compatibility or direct access
+            for eff in anova_effects:
+                if eff["source"] == factor_list[0]:
+                    anova_table["factorA"] = eff
+                elif len(factor_list) > 1 and eff["source"] == factor_list[1]:
+                    anova_table["factorB"] = eff
+                elif len(factor_list) > 1 and eff["source"] == f"{factor_list[0]}:{factor_list[1]}":
+                    anova_table["interaction"] = eff
+
+            if "factorA" not in anova_table:
+                # Fallback to the first effect in the list
+                anova_table["factorA"] = anova_effects[0]
+
+            # Compute replication number r
+            num_combos = np.prod([len(df_clean[f].unique()) for f in factor_list])
+            if test_type == "rbd_multifactor" and rep_var:
+                r = len(df_clean[rep_var].unique())
+            else:
+                r = len(df_clean) / num_combos if num_combos > 0 else 1.0
+
+            if ms_error > 0 and r > 0 and df_error > 0:
+                t_5 = stats.t.ppf(0.975, df_error)
+                t_1 = stats.t.ppf(0.995, df_error)
+                
+                # Critical difference for the full treatment combinations
+                se_combos = np.sqrt(2.0 * ms_error / r)
+                cd_results.append({
+                    "parameter": "Treatment Combinations",
+                    "se_d": float(se_combos),
+                    "cd_5": float(t_5 * se_combos),
+                    "cd_1": float(t_1 * se_combos)
+                })
+
+            # Plot treatment combinations
+            plot_df = df_clean.copy()
+            plot_df['Treatment'] = plot_df[factor_list].agg(' / '.join, axis=1)
+            plot_df = plot_df.sort_values('Treatment')
+            
+            sns.barplot(data=plot_df, x='Treatment', y=dep_var, palette=palette, ax=ax, capsize=0.1)
+            ax.set_title(f"Treatment Combinations: {dep_var} by {', '.join(factor_list)}", fontsize=12, fontweight="bold", pad=15)
+            ax.set_xlabel("Treatment (Factor Combinations)", fontsize=10)
+            ax.set_ylabel(dep_var, fontsize=10)
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
+
+        if test_type in ["twoway", "rbd_twoway", "splitplot", "crd_multifactor", "rbd_multifactor"]:
             residuals = None
             try:
                 if test_type == "twoway":
@@ -2029,6 +2280,14 @@ def analyze_anova(
                 elif test_type == "rbd_twoway":
                     block_means = df_clean.groupby(rep_var)[dep_var].transform('mean')
                     cell_means = df_clean.groupby([ind_var1, ind_var2])[dep_var].transform('mean')
+                    grand_mean = df_clean[dep_var].mean()
+                    residuals = df_clean[dep_var] - block_means - cell_means + grand_mean
+                elif test_type == "crd_multifactor":
+                    cell_means = df_clean.groupby(factor_list)[dep_var].transform('mean')
+                    residuals = df_clean[dep_var] - cell_means
+                elif test_type == "rbd_multifactor":
+                    block_means = df_clean.groupby(rep_var)[dep_var].transform('mean')
+                    cell_means = df_clean.groupby(factor_list)[dep_var].transform('mean')
                     grand_mean = df_clean[dep_var].mean()
                     residuals = df_clean[dep_var] - block_means - cell_means + grand_mean
                 else:  # splitplot
@@ -2060,7 +2319,10 @@ def analyze_anova(
                 }
 
             try:
-                interaction_groups = df_clean.groupby([ind_var1, ind_var2])
+                if test_type in ["crd_multifactor", "rbd_multifactor"]:
+                    interaction_groups = df_clean.groupby(factor_list)
+                else:
+                    interaction_groups = df_clean.groupby([ind_var1, ind_var2])
                 group_lists_levene = [group[dep_var].values for name, group in interaction_groups]
                 valid_groups = [g for g in group_lists_levene if len(g) >= 2]
                 if len(valid_groups) >= 2:
@@ -2100,10 +2362,16 @@ def analyze_anova(
                 "std": std_val,
                 "se": se_val
             }
-    elif test_type in ["twoway", "rbd_twoway", "splitplot"] and ind_var2:
-        groups = df_clean.groupby([ind_var1, ind_var2])
+    elif test_type in ["twoway", "rbd_twoway", "splitplot", "crd_multifactor", "rbd_multifactor"]:
+        if test_type in ["crd_multifactor", "rbd_multifactor"]:
+            groups = df_clean.groupby(factor_list)
+        else:
+            groups = df_clean.groupby([ind_var1, ind_var2])
         for name, group in groups:
-            cell_name = f"{name[0]} / {name[1]}"
+            if isinstance(name, tuple):
+                cell_name = " / ".join(str(x) for x in name)
+            else:
+                cell_name = str(name)
             n_val = int(len(group))
             std_val = float(group[dep_var].std(ddof=1)) if n_val > 1 else 0.0
             se_val = float(std_val / np.sqrt(n_val)) if n_val > 0 else 0.0
@@ -2154,6 +2422,15 @@ def analyze_anova(
         if rep_var:
             r_vals = sorted(df_clean[rep_var].unique().tolist())
             r = len(r_vals) if len(r_vals) > 0 else 1.0
+    elif test_type == "crd_multifactor":
+        mse = anova_table.get("error", {}).get("ms", 0.0)
+        num_combos = np.prod([len(df_clean[f].unique()) for f in factor_list])
+        r = len(df_clean) / num_combos if num_combos > 0 else 1.0
+    elif test_type == "rbd_multifactor":
+        mse = anova_table.get("error", {}).get("ms", 0.0)
+        if rep_var:
+            r_vals = sorted(df_clean[rep_var].unique().tolist())
+            r = len(r_vals) if len(r_vals) > 0 else 1.0
 
     # Calculate CV & SE(m)
     cv = (np.sqrt(mse) / grand_mean) * 100 if grand_mean != 0.0 else 0.0
@@ -2189,6 +2466,8 @@ def analyze_anova(
                 elif test_type == "twoway":
                     df_error = anova_table.get("error", {}).get("df", 1.0)
                 elif test_type == "rbd_twoway":
+                    df_error = anova_table.get("error", {}).get("df", 1.0)
+                elif test_type in ["crd_multifactor", "rbd_multifactor"]:
                     df_error = anova_table.get("error", {}).get("df", 1.0)
                 elif test_type == "splitplot":
                     df_error = anova_table.get("error_b", {}).get("df", 1.0)
