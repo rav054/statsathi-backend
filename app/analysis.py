@@ -4610,4 +4610,190 @@ def analyze_regression(
         )
 
 
+@router.post("/transform")
+def transform_dataset(
+    file: UploadFile = File(...),
+    columns: str = Form(...),
+    method: str = Form(...),
+    current_user: User = Depends(get_current_user)
+):
+    import json
+    from sklearn.preprocessing import StandardScaler, MinMaxScaler
+
+    filename = file.filename or ""
+    if not (filename.endswith('.csv') or filename.endswith('.xlsx') or filename.endswith('.xls')):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only CSV or Excel files are supported."
+        )
+
+    try:
+        if filename.endswith('.csv'):
+            df = pd.read_csv(file.file)
+        else:
+            df = pd.read_excel(file.file)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to parse dataset file: {str(e)}"
+        )
+
+    try:
+        if columns.strip().startswith('['):
+            col_list = json.loads(columns)
+        else:
+            col_list = [c.strip() for c in columns.split(',') if c.strip()]
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid columns parameter. Provide a JSON array or comma-separated column names."
+        )
+
+    if not col_list:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No columns specified for transformation."
+        )
+
+    norm_method = method.strip().lower()
+    allowed_methods = {
+        'log10': 'Log10',
+        'ln': 'Ln',
+        'sqrt': 'Sqrt',
+        'arcsine': 'Arcsine',
+        'boxcox': 'BoxCox',
+        'yeojohnson': 'YeoJohnson',
+        'zscore': 'ZScore',
+        'minmax': 'MinMax'
+    }
+
+    if norm_method not in allowed_methods:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported transformation method '{method}'. Choose from: {list(allowed_methods.keys())}"
+        )
+
+    transformed_cols = []
+
+    for col in col_list:
+        if col not in df.columns:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Column '{col}' not found in the uploaded dataset."
+            )
+
+        series = pd.to_numeric(df[col], errors='coerce')
+        if series.isnull().all():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Column '{col}' does not contain valid numeric data."
+            )
+
+        new_col_name = f"{col}_{allowed_methods[norm_method]}"
+
+        try:
+            if norm_method == 'log10':
+                non_nulls = series.dropna()
+                if (non_nulls <= 0).any():
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Cannot apply Log/Box-Cox to zero or negative values in '{col}'. Try Yeo-Johnson instead."
+                    )
+                df[new_col_name] = np.log10(series)
+
+            elif norm_method == 'ln':
+                non_nulls = series.dropna()
+                if (non_nulls <= 0).any():
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Cannot apply Log/Box-Cox to zero or negative values in '{col}'. Try Yeo-Johnson instead."
+                    )
+                df[new_col_name] = np.log(series)
+
+            elif norm_method == 'sqrt':
+                non_nulls = series.dropna()
+                if (non_nulls < 0).any():
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Cannot apply Square Root to negative values in '{col}'. Try Yeo-Johnson instead."
+                    )
+                df[new_col_name] = np.sqrt(series)
+
+            elif norm_method == 'arcsine':
+                non_nulls = series.dropna()
+                if non_nulls.max() > 1.0 and non_nulls.max() <= 100.0:
+                    scaled = series / 100.0
+                    non_nulls_scaled = scaled.dropna()
+                else:
+                    scaled = series
+                    non_nulls_scaled = non_nulls
+
+                if (non_nulls_scaled < 0).any() or (non_nulls_scaled > 1.0).any():
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Arcsine transformation requires proportions between 0 and 1 (or percentages 0-100%). Column '{col}' contains values outside this range."
+                    )
+                df[new_col_name] = np.arcsin(np.sqrt(scaled))
+
+            elif norm_method == 'boxcox':
+                non_nulls = series.dropna()
+                if (non_nulls <= 0).any():
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Cannot apply Log/Box-Cox to zero or negative values in '{col}'. Try Yeo-Johnson instead."
+                    )
+                res_boxcox, _ = stats.boxcox(non_nulls.values)
+                transformed_series = pd.Series(index=series.index, dtype=float)
+                transformed_series.loc[non_nulls.index] = res_boxcox
+                df[new_col_name] = transformed_series
+
+            elif norm_method == 'yeojohnson':
+                non_nulls = series.dropna()
+                res_yj, _ = stats.yeojohnson(non_nulls.values)
+                transformed_series = pd.Series(index=series.index, dtype=float)
+                transformed_series.loc[non_nulls.index] = res_yj
+                df[new_col_name] = transformed_series
+
+            elif norm_method == 'zscore':
+                non_nulls = series.dropna()
+                scaler = StandardScaler()
+                scaled_vals = scaler.fit_transform(non_nulls.values.reshape(-1, 1)).flatten()
+                transformed_series = pd.Series(index=series.index, dtype=float)
+                transformed_series.loc[non_nulls.index] = scaled_vals
+                df[new_col_name] = transformed_series
+
+            elif norm_method == 'minmax':
+                non_nulls = series.dropna()
+                scaler = MinMaxScaler()
+                scaled_vals = scaler.fit_transform(non_nulls.values.reshape(-1, 1)).flatten()
+                transformed_series = pd.Series(index=series.index, dtype=float)
+                transformed_series.loc[non_nulls.index] = scaled_vals
+                df[new_col_name] = transformed_series
+
+            transformed_cols.append(new_col_name)
+
+        except HTTPException as he:
+            raise he
+        except Exception as ex:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to apply {method} to '{col}': {str(ex)}"
+            )
+
+    clean_df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
+    records = clean_df.to_dict(orient="records")
+
+    return {
+        "message": f"Successfully applied {allowed_methods[norm_method]} transformation to {len(col_list)} column(s).",
+        "method": norm_method,
+        "method_display": allowed_methods[norm_method],
+        "original_columns": col_list,
+        "transformed_columns": transformed_cols,
+        "all_columns": list(df.columns),
+        "records": records,
+        "csv_content": df.to_csv(index=False)
+    }
+
+
+
 
