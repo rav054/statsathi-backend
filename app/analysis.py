@@ -2610,6 +2610,7 @@ def generate_plot_internal(
     ylim_max: Optional[str] = None,
     x_interval: Optional[str] = None,
     y_interval: Optional[str] = None,
+    x_vars_str: Optional[str] = None,
     y_vars_str: Optional[str] = None,
     download_format: str = "png",
     dpi: int = 150
@@ -3361,6 +3362,7 @@ def analyze_plot(
     ylim_max: Optional[str] = Form(None),
     x_interval: Optional[str] = Form(None),
     y_interval: Optional[str] = Form(None),
+    x_vars_str: Optional[str] = Form(None),
     y_vars_str: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user)
 ):
@@ -3395,6 +3397,7 @@ def analyze_plot(
         ylim_max=ylim_max,
         x_interval=x_interval,
         y_interval=y_interval,
+        x_vars_str=x_vars_str,
         y_vars_str=y_vars_str,
         download_format="png",
         dpi=150
@@ -3434,6 +3437,7 @@ def download_plot(
     ylim_max: Optional[str] = Form(None),
     x_interval: Optional[str] = Form(None),
     y_interval: Optional[str] = Form(None),
+    x_vars_str: Optional[str] = Form(None),
     y_vars_str: Optional[str] = Form(None),
     download_format: str = Form("png"),
     dpi: int = Form(300),
@@ -3470,6 +3474,7 @@ def download_plot(
         ylim_max=ylim_max,
         x_interval=x_interval,
         y_interval=y_interval,
+        x_vars_str=x_vars_str,
         y_vars_str=y_vars_str,
         download_format=download_format,
         dpi=dpi
