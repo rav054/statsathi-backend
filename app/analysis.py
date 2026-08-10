@@ -2657,18 +2657,20 @@ def generate_plot_internal(
     pca_cols = []
     y_cols = []
 
-    if plot_type == "multiline":
-        if not y_vars_str:
-            raise HTTPException(status_code=400, detail="Multi-line plot requires at least one Y variable column.")
+    if y_vars_str:
         y_cols = list(dict.fromkeys([c.strip() for c in y_vars_str.split(",") if c.strip()]))
+
+    if plot_type == "multiline":
+        if not y_cols:
+            raise HTTPException(status_code=400, detail="Multi-line plot requires at least one Y variable column.")
         cols_to_use = [x_var]
         for col in y_cols:
             if col not in df.columns:
                 raise HTTPException(status_code=400, detail=f"Column '{col}' not found in dataset.")
             cols_to_use.append(col)
     elif plot_type == "pcabiplot":
-        if y_vars_str:
-            pca_cols = list(dict.fromkeys([c.strip() for c in y_vars_str.split(",") if c.strip()]))
+        if y_cols:
+            pca_cols = y_cols
         else:
             pca_cols = list(df.select_dtypes(include=[np.number]).columns)
             if hue_var in pca_cols:
@@ -2682,7 +2684,12 @@ def generate_plot_internal(
             cols_to_use.append(col)
     else:
         cols_to_use = [x_var]
-        if y_var:
+        if y_cols:
+            for col in y_cols:
+                if col not in df.columns:
+                    raise HTTPException(status_code=400, detail=f"Column '{col}' not found in dataset.")
+                cols_to_use.append(col)
+        elif y_var:
             cols_to_use.append(y_var)
     
     if hue_var and hue_var not in cols_to_use:
@@ -4696,16 +4703,12 @@ def transform_dataset(
             n_samples, k_cols = matrix_vals.shape
 
             if norm_method == 'snv':
-                if k_cols > 1:
-                    row_means = np.nanmean(matrix_vals, axis=1, keepdims=True)
-                    row_stds = np.nanstd(matrix_vals, axis=1, ddof=1, keepdims=True)
-                    row_stds[row_stds == 0] = 1.0
-                    row_stds[np.isnan(row_stds)] = 1.0
-                    res_matrix = (matrix_vals - row_means) / row_stds
-                else:
-                    col_mean = np.nanmean(matrix_vals)
-                    col_std = np.nanstd(matrix_vals, ddof=1)
-                    res_matrix = (matrix_vals - col_mean) / (col_std if col_std > 0 else 1.0)
+                spectral_data = df[col_list].apply(pd.to_numeric, errors='coerce')
+                row_means = spectral_data.mean(axis=1)
+                row_stds = spectral_data.std(axis=1, ddof=1)
+                row_stds_safe = row_stds.replace(0, np.nan).fillna(1e-8).apply(lambda v: 1e-8 if abs(v) < 1e-8 else v)
+                snv_df = spectral_data.sub(row_means, axis=0).div(row_stds_safe, axis=0)
+                res_matrix = snv_df.values
 
             elif norm_method == 'msc':
                 if k_cols > 1:
