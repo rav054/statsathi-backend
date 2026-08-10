@@ -4664,7 +4664,12 @@ def transform_dataset(
         'boxcox': 'BoxCox',
         'yeojohnson': 'YeoJohnson',
         'zscore': 'ZScore',
-        'minmax': 'MinMax'
+        'minmax': 'MinMax',
+        'snv': 'SNV',
+        'msc': 'MSC',
+        'sg_smooth': 'SGSmooth',
+        'sg_1der': 'SG1stDeriv',
+        'sg_2der': 'SG2ndDeriv'
     }
 
     if norm_method not in allowed_methods:
@@ -4675,110 +4680,189 @@ def transform_dataset(
 
     transformed_cols = []
 
-    for col in col_list:
-        if col not in df.columns:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Column '{col}' not found in the uploaded dataset."
-            )
+    if norm_method in ['snv', 'msc', 'sg_smooth', 'sg_1der', 'sg_2der']:
+        import scipy.signal as signal
 
-        series = pd.to_numeric(df[col], errors='coerce')
-        if series.isnull().all():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Column '{col}' does not contain valid numeric data."
-            )
-
-        new_col_name = f"{col}_{allowed_methods[norm_method]}"
+        for col in col_list:
+            if col not in df.columns:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Column '{col}' not found in the uploaded dataset."
+                )
 
         try:
-            if norm_method == 'log10':
-                non_nulls = series.dropna()
-                if (non_nulls <= 0).any():
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Cannot apply Log/Box-Cox to zero or negative values in '{col}'. Try Yeo-Johnson instead."
-                    )
-                df[new_col_name] = np.log10(series)
+            matrix_df = df[col_list].apply(pd.to_numeric, errors='coerce')
+            matrix_vals = matrix_df.values.astype(float)
+            n_samples, k_cols = matrix_vals.shape
 
-            elif norm_method == 'ln':
-                non_nulls = series.dropna()
-                if (non_nulls <= 0).any():
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Cannot apply Log/Box-Cox to zero or negative values in '{col}'. Try Yeo-Johnson instead."
-                    )
-                df[new_col_name] = np.log(series)
-
-            elif norm_method == 'sqrt':
-                non_nulls = series.dropna()
-                if (non_nulls < 0).any():
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Cannot apply Square Root to negative values in '{col}'. Try Yeo-Johnson instead."
-                    )
-                df[new_col_name] = np.sqrt(series)
-
-            elif norm_method == 'arcsine':
-                non_nulls = series.dropna()
-                if non_nulls.max() > 1.0 and non_nulls.max() <= 100.0:
-                    scaled = series / 100.0
-                    non_nulls_scaled = scaled.dropna()
+            if norm_method == 'snv':
+                if k_cols > 1:
+                    row_means = np.nanmean(matrix_vals, axis=1, keepdims=True)
+                    row_stds = np.nanstd(matrix_vals, axis=1, ddof=1, keepdims=True)
+                    row_stds[row_stds == 0] = 1.0
+                    row_stds[np.isnan(row_stds)] = 1.0
+                    res_matrix = (matrix_vals - row_means) / row_stds
                 else:
-                    scaled = series
-                    non_nulls_scaled = non_nulls
+                    col_mean = np.nanmean(matrix_vals)
+                    col_std = np.nanstd(matrix_vals, ddof=1)
+                    res_matrix = (matrix_vals - col_mean) / (col_std if col_std > 0 else 1.0)
 
-                if (non_nulls_scaled < 0).any() or (non_nulls_scaled > 1.0).any():
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Arcsine transformation requires proportions between 0 and 1 (or percentages 0-100%). Column '{col}' contains values outside this range."
-                    )
-                df[new_col_name] = np.arcsin(np.sqrt(scaled))
+            elif norm_method == 'msc':
+                if k_cols > 1:
+                    ref_spectrum = np.nanmean(matrix_vals, axis=0)
+                    ref_mean = np.nanmean(ref_spectrum)
+                    ref_var = np.nanvar(ref_spectrum)
 
-            elif norm_method == 'boxcox':
-                non_nulls = series.dropna()
-                if (non_nulls <= 0).any():
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Cannot apply Log/Box-Cox to zero or negative values in '{col}'. Try Yeo-Johnson instead."
-                    )
-                res_boxcox, _ = stats.boxcox(non_nulls.values)
-                transformed_series = pd.Series(index=series.index, dtype=float)
-                transformed_series.loc[non_nulls.index] = res_boxcox
-                df[new_col_name] = transformed_series
+                    res_matrix = np.zeros_like(matrix_vals)
+                    for i in range(n_samples):
+                        sample_spec = matrix_vals[i, :]
+                        if np.isnan(sample_spec).any() or ref_var == 0:
+                            res_matrix[i, :] = sample_spec
+                        else:
+                            cov = np.nanmean((sample_spec - np.nanmean(sample_spec)) * (ref_spectrum - ref_mean))
+                            b = cov / ref_var if ref_var > 0 else 1.0
+                            a = np.nanmean(sample_spec) - b * ref_mean
+                            res_matrix[i, :] = (sample_spec - a) / (b if b != 0 else 1.0)
+                else:
+                    res_matrix = matrix_vals - np.nanmean(matrix_vals)
 
-            elif norm_method == 'yeojohnson':
-                non_nulls = series.dropna()
-                res_yj, _ = stats.yeojohnson(non_nulls.values)
-                transformed_series = pd.Series(index=series.index, dtype=float)
-                transformed_series.loc[non_nulls.index] = res_yj
-                df[new_col_name] = transformed_series
+            elif norm_method in ['sg_smooth', 'sg_1der', 'sg_2der']:
+                deriv_order = 0 if norm_method == 'sg_smooth' else (1 if norm_method == 'sg_1der' else 2)
+                poly_order = 2 if deriv_order < 2 else 3
 
-            elif norm_method == 'zscore':
-                non_nulls = series.dropna()
-                scaler = StandardScaler()
-                scaled_vals = scaler.fit_transform(non_nulls.values.reshape(-1, 1)).flatten()
-                transformed_series = pd.Series(index=series.index, dtype=float)
-                transformed_series.loc[non_nulls.index] = scaled_vals
-                df[new_col_name] = transformed_series
+                clean_matrix = pd.DataFrame(matrix_vals).bfill().ffill().fillna(0).values
 
-            elif norm_method == 'minmax':
-                non_nulls = series.dropna()
-                scaler = MinMaxScaler()
-                scaled_vals = scaler.fit_transform(non_nulls.values.reshape(-1, 1)).flatten()
-                transformed_series = pd.Series(index=series.index, dtype=float)
-                transformed_series.loc[non_nulls.index] = scaled_vals
-                df[new_col_name] = transformed_series
+                if k_cols >= 3:
+                    window_len = min(7, k_cols if k_cols % 2 == 1 else k_cols - 1)
+                    if window_len < 3:
+                        window_len = 3
+                    if window_len <= poly_order:
+                        poly_order = max(1, window_len - 1)
+                    res_matrix = signal.savgol_filter(clean_matrix, window_length=window_len, polyorder=poly_order, deriv=deriv_order, axis=1)
+                else:
+                    window_len = min(7, n_samples if n_samples % 2 == 1 else n_samples - 1)
+                    if window_len < 3:
+                        window_len = 3
+                    if window_len <= poly_order:
+                        poly_order = max(1, window_len - 1)
+                    res_matrix = signal.savgol_filter(clean_matrix, window_length=window_len, polyorder=poly_order, deriv=deriv_order, axis=0)
 
-            transformed_cols.append(new_col_name)
+            for idx, col in enumerate(col_list):
+                new_col_name = f"{col}_{allowed_methods[norm_method]}"
+                df[new_col_name] = res_matrix[:, idx]
+                transformed_cols.append(new_col_name)
 
-        except HTTPException as he:
-            raise he
         except Exception as ex:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to apply {method} to '{col}': {str(ex)}"
+                detail=f"Failed to apply {allowed_methods[norm_method]} transformation: {str(ex)}"
             )
+
+    else:
+        for col in col_list:
+            if col not in df.columns:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Column '{col}' not found in the uploaded dataset."
+                )
+
+            series = pd.to_numeric(df[col], errors='coerce')
+            if series.isnull().all():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Column '{col}' does not contain valid numeric data."
+                )
+
+            new_col_name = f"{col}_{allowed_methods[norm_method]}"
+
+            try:
+                if norm_method == 'log10':
+                    non_nulls = series.dropna()
+                    if (non_nulls <= 0).any():
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Cannot apply Log/Box-Cox to zero or negative values in '{col}'. Try Yeo-Johnson instead."
+                        )
+                    df[new_col_name] = np.log10(series)
+
+                elif norm_method == 'ln':
+                    non_nulls = series.dropna()
+                    if (non_nulls <= 0).any():
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Cannot apply Log/Box-Cox to zero or negative values in '{col}'. Try Yeo-Johnson instead."
+                        )
+                    df[new_col_name] = np.log(series)
+
+                elif norm_method == 'sqrt':
+                    non_nulls = series.dropna()
+                    if (non_nulls < 0).any():
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Cannot apply Square Root to negative values in '{col}'. Try Yeo-Johnson instead."
+                        )
+                    df[new_col_name] = np.sqrt(series)
+
+                elif norm_method == 'arcsine':
+                    non_nulls = series.dropna()
+                    if non_nulls.max() > 1.0 and non_nulls.max() <= 100.0:
+                        scaled = series / 100.0
+                        non_nulls_scaled = scaled.dropna()
+                    else:
+                        scaled = series
+                        non_nulls_scaled = non_nulls
+
+                    if (non_nulls_scaled < 0).any() or (non_nulls_scaled > 1.0).any():
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Arcsine transformation requires proportions between 0 and 1 (or percentages 0-100%). Column '{col}' contains values outside this range."
+                        )
+                    df[new_col_name] = np.arcsin(np.sqrt(scaled))
+
+                elif norm_method == 'boxcox':
+                    non_nulls = series.dropna()
+                    if (non_nulls <= 0).any():
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Cannot apply Log/Box-Cox to zero or negative values in '{col}'. Try Yeo-Johnson instead."
+                        )
+                    res_boxcox, _ = stats.boxcox(non_nulls.values)
+                    transformed_series = pd.Series(index=series.index, dtype=float)
+                    transformed_series.loc[non_nulls.index] = res_boxcox
+                    df[new_col_name] = transformed_series
+
+                elif norm_method == 'yeojohnson':
+                    non_nulls = series.dropna()
+                    res_yj, _ = stats.yeojohnson(non_nulls.values)
+                    transformed_series = pd.Series(index=series.index, dtype=float)
+                    transformed_series.loc[non_nulls.index] = res_yj
+                    df[new_col_name] = transformed_series
+
+                elif norm_method == 'zscore':
+                    non_nulls = series.dropna()
+                    scaler = StandardScaler()
+                    scaled_vals = scaler.fit_transform(non_nulls.values.reshape(-1, 1)).flatten()
+                    transformed_series = pd.Series(index=series.index, dtype=float)
+                    transformed_series.loc[non_nulls.index] = scaled_vals
+                    df[new_col_name] = transformed_series
+
+                elif norm_method == 'minmax':
+                    non_nulls = series.dropna()
+                    scaler = MinMaxScaler()
+                    scaled_vals = scaler.fit_transform(non_nulls.values.reshape(-1, 1)).flatten()
+                    transformed_series = pd.Series(index=series.index, dtype=float)
+                    transformed_series.loc[non_nulls.index] = scaled_vals
+                    df[new_col_name] = transformed_series
+
+                transformed_cols.append(new_col_name)
+
+            except HTTPException as he:
+                raise he
+            except Exception as ex:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Failed to apply {method} to '{col}': {str(ex)}"
+                )
 
     clean_df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
     records = clean_df.to_dict(orient="records")

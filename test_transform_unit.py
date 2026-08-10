@@ -41,10 +41,10 @@ def test_transformations_unit():
     df_neg.to_csv(csv_neg_buf, index=False)
     csv_neg_bytes = csv_neg_buf.getvalue()
 
-    # Test all 8 methods
-    methods_to_test = ['log10', 'ln', 'sqrt', 'arcsine', 'boxcox', 'yeojohnson', 'zscore', 'minmax']
+    # Test all methods including spectral
+    methods_to_test = ['log10', 'ln', 'sqrt', 'arcsine', 'boxcox', 'yeojohnson', 'zscore', 'minmax', 'snv', 'msc', 'sg_smooth', 'sg_1der', 'sg_2der']
     for m in methods_to_test:
-        cols_arg = ["Yield"] if m != 'arcsine' else ["Proportion"]
+        cols_arg = ["Yield", "Height"] if m in ['snv', 'msc', 'sg_smooth', 'sg_1der', 'sg_2der'] else (["Yield"] if m != 'arcsine' else ["Proportion"])
         files = {"file": ("test_pos.csv", csv_pos_bytes, "text/csv")}
         data = {
             "columns": json.dumps(cols_arg),
@@ -53,7 +53,7 @@ def test_transformations_unit():
         res = client.post("/analyze/transform", files=files, data=data)
         assert res.status_code == 200, f"Method '{m}' failed: {res.text}"
         res_json = res.json()
-        assert len(res_json["transformed_columns"]) == 1
+        assert len(res_json["transformed_columns"]) == len(cols_arg)
         new_col = res_json["transformed_columns"][0]
         print(f"[OK] Method '{m}' succeeded! Created transformed column: '{new_col}'")
 
