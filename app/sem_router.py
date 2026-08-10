@@ -93,6 +93,7 @@ async def fit_sem(file: UploadFile = File(...), model: str = Form(...)):
         fit_indices["BIC"] = extract_stat(["BIC", "bic"])
         fit_indices["chi2"] = extract_stat(["CHI2", "CHI2 P-VALUE", "chi2", "Chi2", "CHI-SQUARE"])
         fit_indices["df"] = extract_stat(["DOF", "DF", "DoF", "df"])
+        fit_indices["DoF"] = fit_indices["df"]
         fit_indices["pvalue"] = extract_stat(["CHI2 P-VALUE", "P-VALUE", "PVALUE", "pvalue", "p-value"])
     except Exception:
         pass
