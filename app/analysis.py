@@ -24,7 +24,8 @@ router = APIRouter(
 @router.post("/correlation")
 def analyze_correlation(
     file: UploadFile = File(...),
-    palette: str = Form("coolwarm"),
+    palette: str = Form("YlOrRd"),
+    plot_type: str = Form("full"),
     current_user: User = Depends(get_current_user)
 ):
     # Verify file extension
@@ -72,6 +73,13 @@ def analyze_correlation(
             detail=f"Error calculating correlation matrix: {str(e)}"
         )
 
+    # Mask for half correlation plot
+    mask = None
+    if plot_type == "lower":
+        mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
+    elif plot_type == "upper":
+        mask = np.tril(np.ones_like(corr_matrix, dtype=bool))
+
     # Generate publication-ready Seaborn heatmap
     try:
         # Clear previous figures to avoid memory leaks
@@ -88,6 +96,7 @@ def analyze_correlation(
         # Heatmap styling with high readability
         sns.heatmap(
             corr_matrix, 
+            mask=mask,
             annot=True, 
             cmap=palette, 
             fmt=".2f", 
@@ -100,7 +109,8 @@ def analyze_correlation(
         )
 
         # Style labels and title
-        ax.set_title("Pearson Correlation Matrix Heatmap", fontsize=14, fontweight="bold", pad=20, color="#1E293B")
+        title_suffix = " (Lower Triangle)" if plot_type == "lower" else (" (Upper Triangle)" if plot_type == "upper" else "")
+        ax.set_title(f"Pearson Correlation Matrix Heatmap{title_suffix}", fontsize=14, fontweight="bold", pad=20, color="#1E293B")
         plt.xticks(rotation=45, ha='right', fontsize=10, color="#334155")
         plt.yticks(rotation=0, fontsize=10, color="#334155")
         plt.tight_layout()
