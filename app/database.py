@@ -3,9 +3,25 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from .config import settings
 
+
+def database_url(url):
+    """The connection URL with its PostgreSQL driver named explicitly.
+
+    SQLAlchemy chooses the driver from the scheme, and 2.1 changed what a bare `postgresql://` means:
+    it now asks for psycopg 3, while this project installs psycopg2. A host that hands out the URL
+    without a driver would therefore break the app on a library upgrade alone, so the driver is pinned
+    here instead of in whatever environment variable happens to be set. `postgres://` is the older
+    spelling some providers still emit.
+    """
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg2://" + url[len(prefix):]
+    return url
+
+
 # SQLite (local development) needs check_same_thread disabled for FastAPI's threadpool
 connect_args = {"check_same_thread": False} if settings.DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(settings.DATABASE_URL, connect_args=connect_args)
+engine = create_engine(database_url(settings.DATABASE_URL), connect_args=connect_args)
 
 if settings.DATABASE_URL.startswith("sqlite"):
     from sqlalchemy import event
