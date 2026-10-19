@@ -1,0 +1,48 @@
+# Render reads this when the service is created from the repository ("Blueprint"), so the build and
+# start commands, the health check and the list of settings live with the code instead of in a dashboard.
+# Secrets (sync: false) are typed once in the Render dashboard and never stored here.
+services:
+  - type: web
+    name: statsathi-backend
+    runtime: python
+    plan: free            # free instances sleep after 15 minutes idle; "starter" stays awake
+    region: singapore     # closest of Render's regions to India
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips '*'
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.14
+      - key: MPLBACKEND          # Matplotlib draws charts without a display
+        value: Agg
+      - key: PYTHONUNBUFFERED    # logs appear in Render's log view straight away
+        value: "1"
+      - key: TRUST_PROXY_HEADERS # sign-in limits count each visitor, not Render's proxy
+        value: "true"
+
+      # --- Set these in the Render dashboard ---------------------------------------------------
+      - key: DATABASE_URL        # Supabase connection string (session pooler, port 5432)
+        sync: false
+      - key: JWT_SECRET_KEY      # python -c "import secrets; print(secrets.token_hex(32))"
+        sync: false
+      - key: FRONTEND_URL        # https://your-app.vercel.app - used in the links inside emails
+        sync: false
+      - key: CORS_ORIGINS        # the same address; browsers may only call the API from there
+        sync: false
+
+      # --- Account emails: leave unset to write them to the log instead of sending --------------
+      - key: EMAIL_BACKEND
+        value: console           # change to "smtp" once the SMTP settings below are filled in
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURITY
+        value: starttls
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false

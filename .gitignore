@@ -1,0 +1,15 @@
+venv/
+**/__pycache__/
+*.pyc
+*.log
+*.db
+temp_sem_diagram*
+
+# Secrets: never commit. Copy .env.example to .env instead.
+.env
+.env.*
+!.env.example
+
+# Local scratch
+.pytest_cache/
+.DS_Store

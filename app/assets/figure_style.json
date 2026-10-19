@@ -1,0 +1,261 @@
+{
+  "version": 2,
+  "font": {
+    "css": "Instrument Sans, Segoe UI, system-ui, sans-serif",
+    "matplotlib": [
+      "Instrument Sans",
+      "Segoe UI",
+      "Arial",
+      "Helvetica",
+      "Liberation Sans",
+      "DejaVu Sans"
+    ],
+    "mono_css": "JetBrains Mono, Consolas, monospace"
+  },
+  "colors": {
+    "text": "#0F172A",
+    "muted": "#64748B",
+    "axis": "#CBD5E1",
+    "grid": "#E8EBF1",
+    "background": "#FFFFFF"
+  },
+  "default_palette": "statsathi",
+  "palettes": {
+    "statsathi": {
+      "label": "StatSathi",
+      "colorblind_safe": true,
+      "colors": [
+        "#4F46E5",
+        "#F2690F",
+        "#EC4899",
+        "#A855F7",
+        "#15A34A",
+        "#0284C7",
+        "#B45309",
+        "#0D9488"
+      ],
+      "colors_dark": [
+        "#6366F1",
+        "#D96C0C",
+        "#EC4899",
+        "#A855F7",
+        "#16A34A",
+        "#0C93D8",
+        "#C2730B",
+        "#0FA3A3"
+      ],
+      "cmap": "statsathi_seq",
+      "diverging_cmap": "statsathi_div"
+    },
+    "okabe_ito": {
+      "label": "Okabe-Ito",
+      "colorblind_safe": true,
+      "colors": [
+        "#0072B2",
+        "#E69F00",
+        "#009E73",
+        "#D55E00",
+        "#56B4E9",
+        "#CC79A7",
+        "#F0E442",
+        "#000000"
+      ],
+      "cmap": "cividis",
+      "colors_dark": [
+        "#4D9DE0",
+        "#F0A500",
+        "#1FBF8F",
+        "#F06543",
+        "#7FC7F0",
+        "#DE93BE",
+        "#D6C94A",
+        "#9AA6B2"
+      ]
+    },
+    "tol_bright": {
+      "label": "Paul Tol bright",
+      "colorblind_safe": true,
+      "colors": [
+        "#4477AA",
+        "#EE6677",
+        "#228833",
+        "#CCBB44",
+        "#66CCEE",
+        "#AA3377",
+        "#BBBBBB"
+      ],
+      "cmap": "cividis",
+      "colors_dark": [
+        "#6699DD",
+        "#F08099",
+        "#36A64F",
+        "#D9C95C",
+        "#7FD8F5",
+        "#C45C96",
+        "#9AA6B2"
+      ]
+    },
+    "viridis": {
+      "label": "Viridis",
+      "colorblind_safe": true,
+      "colors": [
+        "#440154",
+        "#46327E",
+        "#365C8D",
+        "#277F8E",
+        "#1FA187",
+        "#4AC16D",
+        "#A0DA39",
+        "#FDE725"
+      ],
+      "cmap": "viridis",
+      "colors_dark": [
+        "#6E4CA8",
+        "#5B6FBF",
+        "#4B8FC0",
+        "#2FA39A",
+        "#36B57F",
+        "#67C96F",
+        "#A7D94A",
+        "#E8DE52"
+      ]
+    },
+    "earth": {
+      "label": "Field & soil",
+      "colorblind_safe": false,
+      "colors": [
+        "#33691E",
+        "#BF360C",
+        "#F9A825",
+        "#01579B",
+        "#6D4C41",
+        "#7CB342",
+        "#00838F",
+        "#8E24AA"
+      ],
+      "cmap": "YlGn",
+      "colors_dark": [
+        "#7CB342",
+        "#E2672B",
+        "#F9A825",
+        "#2E8BC0",
+        "#A1887F",
+        "#9CCC65",
+        "#26A69A",
+        "#BA68C8"
+      ]
+    },
+    "greyscale": {
+      "label": "Greyscale (print)",
+      "colorblind_safe": true,
+      "colors": [
+        "#1A1A1A",
+        "#7A7A7A",
+        "#B5B5B5",
+        "#4D4D4D",
+        "#999999",
+        "#D4D4D4"
+      ],
+      "cmap": "Greys",
+      "colors_dark": [
+        "#E2E8F0",
+        "#A3AEBE",
+        "#6E7A8A",
+        "#C3CBDA",
+        "#8A96AD",
+        "#4C5768"
+      ]
+    }
+  },
+  "default_preset": "screen",
+  "presets": {
+    "screen": {
+      "label": "Screen & slides",
+      "width_mm": 170,
+      "aspect": 0.7,
+      "font_pt": 10,
+      "title_pt": 12,
+      "line_width": 1.5,
+      "axis_width": 0.8,
+      "marker_size": 6,
+      "dpi": 150
+    },
+    "single_column": {
+      "label": "Journal: single column (85 mm)",
+      "width_mm": 85,
+      "aspect": 0.8,
+      "font_pt": 7,
+      "title_pt": 8,
+      "line_width": 0.9,
+      "axis_width": 0.5,
+      "marker_size": 3.5,
+      "dpi": 600
+    },
+    "one_half_column": {
+      "label": "Journal: 1.5 column (120 mm)",
+      "width_mm": 120,
+      "aspect": 0.75,
+      "font_pt": 8,
+      "title_pt": 9,
+      "line_width": 1.0,
+      "axis_width": 0.6,
+      "marker_size": 4,
+      "dpi": 600
+    },
+    "double_column": {
+      "label": "Journal: double column (180 mm)",
+      "width_mm": 180,
+      "aspect": 0.6,
+      "font_pt": 8,
+      "title_pt": 9,
+      "line_width": 1.0,
+      "axis_width": 0.6,
+      "marker_size": 4,
+      "dpi": 600
+    },
+    "thesis": {
+      "label": "Thesis / report page (150 mm)",
+      "width_mm": 150,
+      "aspect": 0.7,
+      "font_pt": 10,
+      "title_pt": 11,
+      "line_width": 1.2,
+      "axis_width": 0.7,
+      "marker_size": 5,
+      "dpi": 300
+    },
+    "poster": {
+      "label": "Poster (300 mm)",
+      "width_mm": 300,
+      "aspect": 0.7,
+      "font_pt": 20,
+      "title_pt": 24,
+      "line_width": 2.5,
+      "axis_width": 1.5,
+      "marker_size": 10,
+      "dpi": 300
+    }
+  },
+  "export_formats": {
+    "server": [
+      "png",
+      "jpeg",
+      "tiff",
+      "svg",
+      "pdf",
+      "eps"
+    ],
+    "browser": [
+      "png",
+      "jpeg",
+      "svg"
+    ]
+  },
+  "colors_dark": {
+    "text": "#E8ECF4",
+    "muted": "#8A96AD",
+    "axis": "#334155",
+    "grid": "#1E2A40",
+    "background": "#111A2E"
+  }
+}
