@@ -20,6 +20,7 @@ from ..figure_style import (PALETTES, PRESETS, STYLE, FONT_STACK, pretty_label, 
                             rotate_category_labels, EXPORT_MEDIA_TYPES, export_figure, figure_size,
                             figure_style, get_preset, normalize_format, preview_dpi, colormap_name, COLORS)
 from . import chart_gallery
+from . import slide_export
 from ..models import User
 
 from .common import read_uploaded_table
@@ -784,6 +785,37 @@ def analyze_plot(
     return {"plot": img_b64}
 
 
+def _download_as_slide(file, *, plot_type, x_var, y_var, hue_var, bins, title, palette,
+                       y_vars_str, preset, **figure_options):
+    """One PowerPoint slide for this chart, editable where PowerPoint has an equivalent chart type."""
+    df = read_uploaded_table(file)
+    if x_var not in df.columns:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Column '{x_var}' not found in dataset.")
+
+    y_cols = [c.strip() for c in (y_vars_str or "").split(",") if c.strip()]
+    data = slide_export.series_for(df, plot_type, x_var=x_var, y_var=y_var, hue_var=hue_var,
+                                   bins=bins or 10, y_cols=y_cols)
+
+    image = None
+    if data is None:
+        # No chart object for this type - place the publication figure and the numbers behind it
+        if plot_type in slide_export.IMAGE_ONLY:
+            data = slide_export.five_number_summary(df, x_var, y_var)
+        # an unknown plot type is rejected by the renderer below, which owns that list
+        image = generate_plot_internal(
+            file=file, plot_type=plot_type, x_var=x_var, y_var=y_var, hue_var=hue_var, bins=bins,
+            title=title, palette=palette, y_vars_str=y_vars_str, preset=preset,
+            download_format="png", dpi=200, **figure_options
+        ).getvalue()
+
+    buffer = slide_export.build_deck(
+        {"plot_type": plot_type, "title": title, "palette": palette}, data, image)
+    filename = f"statsathi_plot_{plot_type}.pptx"
+    return StreamingResponse(buffer, media_type=slide_export.MEDIA_TYPE,
+                             headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
 @router.post("/plot/download")
 def download_plot(
     file: UploadFile = File(...),
@@ -823,6 +855,18 @@ def download_plot(
     preset: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user)
 ):
+    # PowerPoint is not a Matplotlib format: the slide carries a chart object built from the data
+    # itself, so it stays editable in PowerPoint instead of being a picture of a result.
+    if (download_format or "").strip().lower() in ("pptx", "ppt", "powerpoint"):
+        return _download_as_slide(
+            file, plot_type=plot_type, x_var=x_var, y_var=y_var, hue_var=hue_var, bins=bins,
+            title=title, palette=palette, y_vars_str=y_vars_str, preset=preset,
+            kde=kde, fit_reg=fit_reg, xlabel=xlabel, ylabel=ylabel, legend_loc=legend_loc,
+            show_grid=show_grid, aspect_ratio=aspect_ratio, text_color=text_color,
+            errorbar_toggle=errorbar_toggle, errorbar_type=errorbar_type,
+            x_vars_str=x_vars_str,
+        )
+
     try:
         download_format = normalize_format(download_format)
     except ValueError as e:

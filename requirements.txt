@@ -18,6 +18,7 @@ psycopg2-binary==2.9.9
 bcrypt==4.0.1
 openpyxl>=3.1.0
 python-docx>=1.1.0
+python-pptx==1.0.2
 Pillow>=10.0.0
 semopy>=2.3.11
 graphviz>=0.20
